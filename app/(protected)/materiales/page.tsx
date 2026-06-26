@@ -10,11 +10,48 @@ import type { Material } from '@/lib/types'
 
 type Modal = { tipo: 'agregar' } | { tipo: 'editar'; material: Material } | { tipo: 'eliminar'; material: Material } | null
 
+function exportarCSVMateriales(materiales: Material[]) {
+  const quote = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`
+  const headers = ['Nombre', 'Marca', 'Tipo', 'Color', 'Unidad', 'Stock', 'Punto Rep.', 'Precio ($ ARS)', 'Proveedor']
+  const rows = materiales.map((m) => {
+    const unidad = (m.unidad ?? 'g') === 'g' ? 'g' : 'ud'
+    return [
+      m.nombre, m.marca ?? '', m.tipo, m.color, unidad,
+      m.stock_gramos, m.punto_reposicion, m.precio_por_kilo.toFixed(0), m.proveedor,
+    ]
+  })
+  const csv = [headers, ...rows].map((r) => r.map(quote).join(',')).join('\n')
+  const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `materiales_${new Date().toISOString().split('T')[0]}.csv`
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  URL.revokeObjectURL(url)
+}
+
 export default function MaterialesPage() {
   const { user } = useAuthContext()
   const { materiales, loading, agregarMaterial, actualizarMaterial, eliminarMaterial } = useMateriales(user?.uid)
   const [modal, setModal] = useState<Modal>(null)
   const [eliminando, setEliminando] = useState(false)
+  const [busqueda, setBusqueda] = useState('')
+
+  const materialesFiltrados = materiales.filter((m) => {
+    if (!busqueda) return true
+    const q = busqueda.toLowerCase()
+    return (
+      m.nombre.toLowerCase().includes(q) ||
+      m.tipo.toLowerCase().includes(q) ||
+      m.color.toLowerCase().includes(q) ||
+      m.marca?.toLowerCase().includes(q) ||
+      m.proveedor.toLowerCase().includes(q)
+    )
+  })
+
+  const materialesCriticos = materiales.filter((m) => m.stock_gramos < m.punto_reposicion)
 
   async function handleGuardar(data: Omit<Material, 'id' | 'userId' | 'createdAt'>) {
     if (!user) return
@@ -37,8 +74,6 @@ export default function MaterialesPage() {
     }
   }
 
-  const materialesCriticos = materiales.filter((m) => m.stock_gramos < m.punto_reposicion)
-
   return (
     <div className="space-y-6 max-w-7xl">
       {/* Header */}
@@ -49,15 +84,43 @@ export default function MaterialesPage() {
             {materiales.length} material{materiales.length !== 1 ? 'es' : ''} registrado{materiales.length !== 1 ? 's' : ''}
           </p>
         </div>
-        <button
-          onClick={() => setModal({ tipo: 'agregar' })}
-          className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold rounded-lg shadow-sm flex-shrink-0"
-        >
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-          </svg>
-          Nuevo material
-        </button>
+        <div className="flex items-center gap-2 flex-shrink-0">
+          {materiales.length > 0 && (
+            <button
+              onClick={() => exportarCSVMateriales(materiales)}
+              className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg"
+              title="Exportar como CSV"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" />
+              </svg>
+              CSV
+            </button>
+          )}
+          <button
+            onClick={() => setModal({ tipo: 'agregar' })}
+            className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold rounded-lg shadow-sm"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+            </svg>
+            Nuevo material
+          </button>
+        </div>
+      </div>
+
+      {/* Búsqueda */}
+      <div className="relative max-w-sm">
+        <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
+        </svg>
+        <input
+          type="search"
+          value={busqueda}
+          onChange={(e) => setBusqueda(e.target.value)}
+          placeholder="Buscar por nombre, tipo, marca..."
+          className="w-full pl-9 pr-4 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+        />
       </div>
 
       {/* Alerta stock crítico */}
@@ -88,7 +151,7 @@ export default function MaterialesPage() {
           </div>
         ) : (
           <TablaMateriales
-            materiales={materiales}
+            materiales={materialesFiltrados}
             onEditar={(m) => setModal({ tipo: 'editar', material: m })}
             onEliminar={(m) => setModal({ tipo: 'eliminar', material: m })}
           />
@@ -103,15 +166,11 @@ export default function MaterialesPage() {
       </div>
 
       {/* Modales */}
-      {(modal?.tipo === 'agregar') && (
+      {modal?.tipo === 'agregar' && (
         <FormMaterial onGuardar={handleGuardar} onCancelar={() => setModal(null)} />
       )}
       {modal?.tipo === 'editar' && (
-        <FormMaterial
-          inicial={modal.material}
-          onGuardar={handleGuardar}
-          onCancelar={() => setModal(null)}
-        />
+        <FormMaterial inicial={modal.material} onGuardar={handleGuardar} onCancelar={() => setModal(null)} />
       )}
       {modal?.tipo === 'eliminar' && (
         <ConfirmModal

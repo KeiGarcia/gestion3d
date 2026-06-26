@@ -15,10 +15,11 @@ import { db } from '@/lib/firebase'
 import type { Configuracion } from '@/lib/types'
 
 const DEFAULTS: Omit<Configuracion, 'id' | 'userId'> = {
-  costo_energia_hora: 0.02,
-  costo_amortizacion_hora: 0.5,
-  costo_mano_obra_hora: 3.0,
-  margen_ganancia_default: 50,
+  costo_energia_hora: 50,
+  costo_amortizacion_hora: 300,
+  costo_mano_obra_hora: 3000,
+  margen_ganancia_default: 40,
+  costo_packaging_default: 1500,
 }
 
 export function useConfiguracion(userId: string | undefined) {
@@ -43,6 +44,7 @@ export function useConfiguracion(userId: string | undefined) {
         costo_amortizacion_hora: data.costo_amortizacion_hora,
         costo_mano_obra_hora: data.costo_mano_obra_hora,
         margen_ganancia_default: data.margen_ganancia_default,
+        costo_packaging_default: data.costo_packaging_default ?? DEFAULTS.costo_packaging_default,
       })
       setConfigId(d.id)
     }

@@ -16,6 +16,38 @@ import {
 } from 'firebase/firestore'
 import { db } from '@/lib/firebase'
 import type { Pedido, EstadoPedido } from '@/lib/types'
+import { normalizarFilamentos } from '@/lib/types'
+
+async function ajustarStock(
+  pedido: Pedido,
+  modo: 'descontar' | 'restaurar'
+) {
+  const sign = modo === 'descontar' ? -1 : 1
+  const cant = pedido.cantidad ?? 1
+
+  // Filamentos (gramos × cantidad del pedido)
+  const filamentos = normalizarFilamentos(pedido)
+  for (const f of filamentos) {
+    if (!f.materialId || f.consumo_gramos <= 0) continue
+    const materialRef = doc(db, 'materiales', f.materialId)
+    const snap = await getDoc(materialRef)
+    if (!snap.exists()) continue
+    const delta = f.consumo_gramos * cant
+    await updateDoc(materialRef, { stock_gramos: increment(sign * delta) })
+  }
+
+  // Insumos (unidades × cantidad del pedido)
+  if (pedido.insumos && pedido.insumos.length > 0) {
+    for (const insumo of pedido.insumos) {
+      if (!insumo.materialId || insumo.cantidad <= 0) continue
+      const materialRef = doc(db, 'materiales', insumo.materialId)
+      const snap = await getDoc(materialRef)
+      if (!snap.exists()) continue
+      const delta = insumo.cantidad * cant
+      await updateDoc(materialRef, { stock_gramos: increment(sign * delta) })
+    }
+  }
+}
 
 export function usePedidos(userId: string | undefined) {
   const [pedidos, setPedidos] = useState<Pedido[]>([])
@@ -51,21 +83,27 @@ export function usePedidos(userId: string | undefined) {
     })
   }
 
+  async function actualizarPedido(pedidoId: string, data: Partial<Omit<Pedido, 'id' | 'userId' | 'createdAt'>>) {
+    await updateDoc(doc(db, 'pedidos', pedidoId), {
+      ...data,
+      updatedAt: serverTimestamp(),
+    })
+  }
+
   async function cambiarEstado(pedidoId: string, nuevoEstado: EstadoPedido, pedido: Pedido) {
     const pedidoRef = doc(db, 'pedidos', pedidoId)
 
-    // Descontar stock al completar (solo si no estaba Completado antes)
-    if (nuevoEstado === 'Completado' && pedido.estado !== 'Completado' && pedido.materialId) {
-      const materialRef = doc(db, 'materiales', pedido.materialId)
-      const materialSnap = await getDoc(materialRef)
-      if (materialSnap.exists()) {
-        const stockActual = materialSnap.data().stock_gramos as number
-        const descuento = Math.min(pedido.consumo_gramos, stockActual)
-        await updateDoc(materialRef, {
-          stock_gramos: increment(-descuento),
-        })
-      }
+    // Al completar: descontar stock (solo si no estaba ya Completado)
+    if (nuevoEstado === 'Completado' && pedido.estado !== 'Completado') {
+      await ajustarStock(pedido, 'descontar')
     }
+
+    // Cancelado-PRE desde Completado: restaurar stock (fue marcado completado por error)
+    if (nuevoEstado === 'Cancelado - PRE' && pedido.estado === 'Completado') {
+      await ajustarStock(pedido, 'restaurar')
+    }
+
+    // Cancelado-POS desde Completado: no restaurar (producto ya fabricado, materiales consumidos)
 
     await updateDoc(pedidoRef, {
       estado: nuevoEstado,
@@ -73,5 +111,5 @@ export function usePedidos(userId: string | undefined) {
     })
   }
 
-  return { pedidos, loading, agregarPedido, cambiarEstado }
+  return { pedidos, loading, agregarPedido, actualizarPedido, cambiarEstado }
 }

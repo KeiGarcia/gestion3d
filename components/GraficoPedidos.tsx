@@ -4,11 +4,13 @@ import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 
 import type { EstadoPedido } from '@/lib/types'
 
 const COLORES_ESTADO: Record<EstadoPedido, string> = {
-  'Pendiente':     '#f59e0b',
-  'En producción': '#3b82f6',
-  'Completado':    '#10b981',
-  'Entregado':     '#64748b',
-  'Cancelado':     '#ef4444',
+  'Pendiente':       '#f59e0b',
+  'En producción':   '#3b82f6',
+  'Completado':      '#10b981',
+  'Entregado':       '#64748b',
+  'Cancelado':       '#ef4444',
+  'Cancelado - POS': '#dc2626',
+  'Cancelado - PRE': '#f97316',
 }
 
 interface GraficoPedidosProps {

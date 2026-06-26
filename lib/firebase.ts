@@ -1,6 +1,6 @@
 import { initializeApp, getApps } from 'firebase/app'
 import { getAuth } from 'firebase/auth'
-import { getFirestore } from 'firebase/firestore'
+import { initializeFirestore, getFirestore } from 'firebase/firestore'
 
 const firebaseConfig = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
@@ -14,7 +14,16 @@ const firebaseConfig = {
 const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0]
 
 export const auth = getAuth(app)
-export const db = getFirestore(app)
+
+// initializeFirestore solo puede llamarse una vez por instancia de app.
+// El try/catch maneja el caso de hot-reload donde ya fue inicializado.
+let db: ReturnType<typeof getFirestore>
+try {
+  db = initializeFirestore(app, { ignoreUndefinedProperties: true })
+} catch {
+  db = getFirestore(app)
+}
+export { db }
 export default app
 
 /*
