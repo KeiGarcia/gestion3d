@@ -9,10 +9,60 @@ import { useClientes } from '@/hooks/useClientes'
 import FormPedido from '@/components/FormPedido'
 import EstadoBadge from '@/components/EstadoBadge'
 import type { Pedido, EstadoPedido, Material } from '@/lib/types'
-import { ESTADOS_PEDIDO, estadosDisponibles, esTerminal, normalizarFilamentos, totalConsumo } from '@/lib/types'
+import { ESTADOS_PEDIDO, estadosDisponibles, esTerminal, esFilamento, normalizarFilamentos, totalConsumo } from '@/lib/types'
 import { ars } from '@/lib/format'
 
 type FiltroEstado = 'Todos' | EstadoPedido
+
+interface StockFaltante {
+  nombre: string
+  necesita: number
+  tiene: number
+  falta: number
+  unidad: 'g' | 'ud'
+}
+interface StockStatus {
+  suficiente: boolean
+  faltantes: StockFaltante[]
+}
+
+function verificarStock(pedido: Pedido, materiales: Material[]): StockStatus {
+  // Pedidos que ya consumieron stock o están cancelados: no hay restricción
+  if (
+    pedido.estado === 'Completado' ||
+    pedido.estado === 'Entregado' ||
+    pedido.estado === 'Cancelado - POS' ||
+    pedido.estado === 'Cancelado - PRE' ||
+    pedido.estado === 'Cancelado'
+  ) {
+    return { suficiente: true, faltantes: [] }
+  }
+  const cant = pedido.cantidad ?? 1
+  const faltantes: StockFaltante[] = []
+
+  for (const f of normalizarFilamentos(pedido)) {
+    const m = materiales.find((x) => x.id === f.materialId)
+    if (!m) continue
+    const necesita = f.consumo_gramos * cant
+    if (m.stock_gramos < necesita) {
+      const nombre = [m.marca, m.tipo, m.color].filter(Boolean).join(' ')
+      faltantes.push({ nombre: nombre || m.nombre, necesita, tiene: m.stock_gramos, falta: necesita - m.stock_gramos, unidad: 'g' })
+    }
+  }
+
+  if (pedido.insumos) {
+    for (const ins of pedido.insumos) {
+      const m = materiales.find((x) => x.id === ins.materialId)
+      if (!m) continue
+      const necesita = ins.cantidad * cant
+      if (m.stock_gramos < necesita) {
+        faltantes.push({ nombre: m.nombre, necesita, tiene: m.stock_gramos, falta: necesita - m.stock_gramos, unidad: esFilamento(m) ? 'g' : 'ud' })
+      }
+    }
+  }
+
+  return { suficiente: faltantes.length === 0, faltantes }
+}
 
 function nombreCortoMaterial(m: Material): string {
   return [m.marca, m.tipo, m.color].filter(Boolean).join(' ')
@@ -265,7 +315,12 @@ export default function PedidosPage() {
             const consumoTotal = totalConsumo(pedido)
             const financiero = calcularFinanciero(pedido)
             const prod = productos.find((p) => p.id === pedido.productoId)
-            const disponibles = estadosDisponibles(pedido.estado)
+            const stockStatus = verificarStock(pedido, materiales)
+            const disponibles = estadosDisponibles(pedido.estado).filter((e) => {
+              if (stockStatus.suficiente) return true
+              // Block these transitions when stock is insufficient
+              return e !== 'En producción' && e !== 'Completado' && e !== 'Cancelado - POS'
+            })
             const terminal = esTerminal(pedido.estado)
             return (
               <div key={pedido.id} className="bg-white rounded-xl border border-slate-200 shadow-sm hover:shadow-md transition-shadow">
@@ -386,6 +441,28 @@ export default function PedidosPage() {
                     </div>
                   </div>
 
+                  {/* Aviso stock insuficiente */}
+                  {!stockStatus.suficiente && (
+                    <div className="mt-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2">
+                      <div className="flex items-center gap-2 text-xs font-semibold text-amber-800 mb-1.5">
+                        <svg className="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
+                        </svg>
+                        Stock insuficiente — estados bloqueados hasta reponer
+                      </div>
+                      <div className="space-y-1">
+                        {stockStatus.faltantes.map((f, i) => (
+                          <div key={i} className="text-xs text-amber-700 flex flex-wrap gap-x-3">
+                            <span className="font-medium">{f.nombre}</span>
+                            <span>Necesita: <span className="font-semibold">{f.necesita}{f.unidad}</span></span>
+                            <span>Tiene: <span className="font-semibold text-red-600">{f.tiene}{f.unidad}</span></span>
+                            <span>Falta: <span className="font-semibold text-red-700">{f.falta.toFixed(1)}{f.unidad}</span></span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
                   {/* Aviso stock descontado */}
                   {pedido.estado === 'Completado' && (
                     <div className="mt-3 flex items-center gap-2 text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2">
@@ -423,6 +500,7 @@ export default function PedidosPage() {
         <FormPedido
           productos={productos}
           materiales={materiales}
+          clientes={clientes}
           inicial={pedidoEditar ?? prefill ?? undefined}
           onGuardar={pedidoEditar ? handleEditar : handleAgregar}
           onCancelar={cerrarModal}

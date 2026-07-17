@@ -1,24 +1,29 @@
 'use client'
 
 import { useState, useEffect, useMemo } from 'react'
-import type { Pedido, Producto, Material } from '@/lib/types'
+import type { Pedido, Producto, Material, Cliente } from '@/lib/types'
 import { ars } from '@/lib/format'
 
 interface FormPedidoProps {
   productos: Producto[]
   materiales: Material[]
+  clientes: Cliente[]
   inicial?: Partial<Pedido> & { productoId?: string }
   onGuardar: (data: Omit<Pedido, 'id' | 'userId' | 'createdAt' | 'updatedAt'>) => Promise<void>
   onCancelar: () => void
 }
 
-export default function FormPedido({ productos, materiales, inicial, onGuardar, onCancelar }: FormPedidoProps) {
+export default function FormPedido({ productos, materiales, clientes, inicial, onGuardar, onCancelar }: FormPedidoProps) {
   const hoy = useMemo(() => new Date().toISOString().split('T')[0], [])
   const [productoId, setProductoId] = useState(inicial?.productoId ?? '')
   const [cantidad, setCantidad] = useState(inicial?.cantidad ?? 1)
+
+  // Cliente
+  const [clienteId, setClienteId] = useState<string>('')   // '' = nuevo cliente
   const [clienteNombre, setClienteNombre] = useState(inicial?.cliente_nombre ?? '')
   const [clienteTelefono, setClienteTelefono] = useState(inicial?.cliente_telefono ?? '')
   const [clienteEmail, setClienteEmail] = useState(inicial?.cliente_email ?? '')
+
   const [fechaEntrega, setFechaEntrega] = useState(inicial?.fecha_entrega ?? hoy)
   const [notas, setNotas] = useState(inicial?.notas ?? '')
   const [precioAcordado, setPrecioAcordado] = useState(inicial?.precio_acordado?.toString() ?? '')
@@ -27,7 +32,25 @@ export default function FormPedido({ productos, materiales, inicial, onGuardar, 
 
   const producto = productos.find((p) => p.id === productoId) ?? null
 
-  // Auto-fill precio when product or quantity changes (only on new pedidos)
+  // Cuando se selecciona un cliente existente, auto-rellenar los campos
+  function handleSelectCliente(id: string) {
+    setClienteId(id)
+    if (id === '') {
+      // "Nuevo cliente" seleccionado: limpiar campos para escribir
+      setClienteNombre('')
+      setClienteTelefono('')
+      setClienteEmail('')
+      return
+    }
+    const c = clientes.find((x) => x.id === id)
+    if (c) {
+      setClienteNombre(c.nombre)
+      setClienteTelefono(c.telefono ?? '')
+      setClienteEmail(c.email ?? '')
+    }
+  }
+
+  // Auto-fill precio cuando cambia producto o cantidad (solo pedidos nuevos)
   useEffect(() => {
     if (!inicial?.precio_acordado && producto) {
       const pv = producto.precio_venta ?? producto.precio_sugerido
@@ -105,7 +128,6 @@ export default function FormPedido({ productos, materiales, inicial, onGuardar, 
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">Producto *</label>
                   <select
-                    required
                     value={productoId}
                     onChange={(e) => setProductoId(e.target.value)}
                     className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white"
@@ -140,7 +162,6 @@ export default function FormPedido({ productos, materiales, inicial, onGuardar, 
                         </span>
                       )}
                     </div>
-                    {/* Receta */}
                     {(producto.filamentos?.length || producto.insumos?.length) ? (
                       <div className="flex flex-wrap gap-1 pt-1 border-t border-indigo-200">
                         {producto.filamentos?.map((f, i) => (
@@ -185,7 +206,6 @@ export default function FormPedido({ productos, materiales, inicial, onGuardar, 
                   </div>
                 </div>
 
-                {/* Resumen total cuando hay más de 1 unidad */}
                 {producto && Number(cantidad) > 1 && (
                   <div className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 flex flex-wrap gap-4 text-xs">
                     {costoTotal !== null && (
@@ -208,6 +228,33 @@ export default function FormPedido({ productos, materiales, inicial, onGuardar, 
           {/* Cliente */}
           <div className="space-y-3">
             <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Cliente</p>
+
+            {/* Selector de cliente existente */}
+            {clientes.length > 0 && (
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">
+                  Buscar cliente existente <span className="text-slate-400 font-normal">(opcional)</span>
+                </label>
+                <select
+                  value={clienteId}
+                  onChange={(e) => handleSelectCliente(e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white"
+                >
+                  <option value="">— Nuevo cliente —</option>
+                  {clientes.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.nombre}{c.telefono ? ` · ${c.telefono}` : ''}
+                    </option>
+                  ))}
+                </select>
+                {clienteId && (
+                  <p className="text-xs text-indigo-600 mt-1">
+                    Datos pre-cargados. Podés editarlos si cambiaron.
+                  </p>
+                )}
+              </div>
+            )}
+
             <div className="grid grid-cols-2 gap-3">
               <div className="col-span-2">
                 <label className="block text-sm font-medium text-slate-700 mb-1">Nombre *</label>
@@ -241,7 +288,11 @@ export default function FormPedido({ productos, materiales, inicial, onGuardar, 
                 />
               </div>
             </div>
-            <p className="text-xs text-slate-400">El cliente se agregará automáticamente a tu lista de clientes.</p>
+            <p className="text-xs text-slate-400">
+              {clienteId
+                ? 'El pedido se asociará al cliente seleccionado.'
+                : 'Si es un cliente nuevo, se agregará automáticamente a tu lista.'}
+            </p>
           </div>
 
           {/* Entrega */}
